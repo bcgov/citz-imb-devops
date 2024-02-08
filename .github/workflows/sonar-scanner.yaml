@@ -1,0 +1,34 @@
+name: sonar-repo-scan
+
+on:
+  workflow_call:
+    inputs:
+      ORG:
+        required: true
+        type: string
+      PROJECT_KEY:
+        required: true
+        type: string
+      URL:
+        required: true
+        type: string
+    secrets:
+      SONAR_TOKEN:
+        required: true
+jobs:
+  sonar-repo-scan:
+    name: sonar-repo-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup
+        uses: warchant/setup-sonar-scanner@v3
+      - name: Run Sonar Scanner
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: sonar-scanner
+             -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+             -Dsonar.organization=${{ inputs.ORG }}
+             -Dsonar.host.url=${{ inputs.URL }}
+             -Dsonar.projectKey=${{ inputs.PROJECT_KEY }}
+             -Dsonar.exclusions=**/*.java
+             -Dsonar.sourceEncoding=UTF-8

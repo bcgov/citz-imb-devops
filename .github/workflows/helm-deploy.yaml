@@ -1,0 +1,128 @@
+name: helm-deploy
+
+on:
+  workflow_call:
+    inputs:
+      NAME:
+        required: true
+        type: string
+      HELM_DIR:
+        required: true
+        type: string
+      VALUES_FILE:
+        required: true
+        type: string
+      OPENSHIFT_NAMESPACE:
+        required: true
+        type: string
+      APP_PORT:
+        required: true
+        type: string
+      TAILSCALE:
+        required: true
+        type: boolean
+    secrets:
+      IMAGE_REGISTRY_USER:
+        required: true
+      IMAGE_REGISTRY_PASSWORD:
+        required: true
+      OPENSHIFT_SERVER:
+        required: true
+      OPENSHIFT_TOKEN:
+        required: true
+      TAILSCALE_API_KEY:
+        required: false
+jobs:
+  deploy:
+    name: Deploy to OpenShift
+    runs-on: ubuntu-20.04
+    environment: production
+
+    outputs:
+      ROUTE: ${{ steps.deploy-and-expose.outputs.route }}
+      SELECTOR: ${{ steps.deploy-and-expose.outputs.selector }}
+
+    steps:
+    - name: Inject slug/short variables
+      uses: rlespinasse/github-slug-action@v3.x
+
+    - name: Setup Tailscale
+      if: ${{ inputs.TAILSCALE }}
+      uses: tailscale/github-action@main
+      with:
+        authkey: ${{ secrets.TAILSCALE_API_KEY }}
+
+    - name: Check for required secrets
+      uses: actions/github-script@v4
+      with:
+        script: |
+          const secrets = {
+            OPENSHIFT_SERVER: `${{ secrets.OPENSHIFT_SERVER }}`,
+            OPENSHIFT_TOKEN: `${{ secrets.OPENSHIFT_TOKEN }}`,
+          };
+
+          const GHCR = "ghcr.io";
+          if (`${{ inputs.IMAGE_REGISTRY }}`.startsWith(GHCR)) {
+            core.info(`Image registry is ${GHCR} - no registry password required`);
+          }
+          else {
+            core.info("A registry password is required");
+            secrets["IMAGE_REGISTRY_PASSWORD"] = `${{ secrets.IMAGE_REGISTRY_PASSWORD }}`;
+          }
+
+          const missingSecrets = Object.entries(secrets).filter(([ name, value ]) => {
+            if (value.length === 0) {
+              core.error(`Secret "${name}" is not set`);
+              return true;
+            }
+            core.info(`✔️ Secret "${name}" is set`);
+            return false;
+          });
+
+          if (missingSecrets.length > 0) {
+            core.setFailed(`❌ At least one required secret is not set in the repository. \n` +
+              "You can add it using:\n" +
+              "GitHub UI: https://docs.github.com/en/actions/reference/encrypted-secrets#creating-encrypted-secrets-for-a-repository \n" +
+              "GitHub CLI: https://cli.github.com/manual/gh_secret_set \n" +
+              "Also, refer to https://github.com/redhat-actions/oc-login#getting-started-with-the-action-or-see-example");
+          }
+          else {
+            core.info(`✅ All the required secrets are set`);
+          }
+
+    - name: Check out repository
+      uses: actions/checkout@v2
+
+    - name: Determine App Name
+      if: inputs.APP_NAME == ''
+      run: |
+        echo "APP_NAME=$(basename $PWD)" | tee -a $GITHUB_ENV
+
+    - name: Install OC
+      uses: redhat-actions/openshift-tools-installer@v1
+      with:
+        oc: 4
+
+    # https://github.com/redhat-actions/oc-login#readme
+    - name: Log in to OpenShift
+      uses: redhat-actions/oc-login@v1
+      with:
+        openshift_server_url: ${{ secrets.OPENSHIFT_SERVER }}
+        openshift_token: ${{ secrets.OPENSHIFT_TOKEN }}
+        insecure_skip_tls_verify: true
+        namespace: ${{ inputs.OPENSHIFT_NAMESPACE }}
+
+    - name: Install Helm
+      uses: azure/setup-helm@v1
+      with:
+        version: 'latest' # default is latest stable
+      id: install
+
+    # kubectl port-forward deployment/flask-web 8080:80
+    - name: Helm Deploy
+      run: |
+        helm upgrade \
+          --install ${{ inputs.NAME }} \
+          --set image.tag=${{ env.GITHUB_SHA_SHORT }} \
+          -f ${{ inputs.VALUES_FILE }} ${{ inputs.HELM_DIR }}
+      id: deploy
