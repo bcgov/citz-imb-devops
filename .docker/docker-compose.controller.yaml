@@ -24,7 +24,7 @@ services:
   ############################# Express API ###################################
   ${NAME_OF_PRODUCT}-api:
     restart: 'no'
-    container_name: ${NAME_OF_PRODUCT}-api
+    container_name: api
     build:
       context: ${NAME_OF_PRODUCT}-api
       target: Prod
