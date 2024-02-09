@@ -22,7 +22,7 @@ services:
   ########################### End Postgres ####################################
 
   ############################# Express API ###################################
-  ${NAME_OF_PRODUCT}-api:
+  api:
     restart: 'no'
     container_name: api
     build:
