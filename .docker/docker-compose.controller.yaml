@@ -57,7 +57,7 @@ services:
       - express-api
     env_file: .env
     networks:
-      - z${NAME_OF_PRODUCT}-network
+      - ${NAME_OF_PRODUCT}-network
   ############################ End React App ##################################
 
   ######################## Networks Definition ################################
