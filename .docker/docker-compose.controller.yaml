@@ -1,0 +1,73 @@
+services:
+
+  ############################### Postgres ####################################
+  postgres:
+    container_name: postgres
+    image: postgres:13.11-alpine3.17
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - ./database/postgres/data/db:/data/db
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER} || exit 1']
+      interval: 5s
+      timeout: 3s
+    networks:
+      - ${NAME_OF_PRODUCT}-network
+  ########################### End Postgres ####################################
+
+  ############################# Express API ###################################
+  api:
+    restart: 'no'
+    container_name: api
+    build:
+      context: ${NAME_OF_PRODUCT}-api
+      target: Prod
+    env_file:
+      - .env
+    ports:
+      - ${API_HTTP_PORT:-5000}:5000
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:5000/api/v2/health']
+      interval: 300s
+      timeout: 10s
+      retries: 3
+    networks:
+      - ${NAME_OF_PRODUCT}-network
+  ########################## End Express API ##################################
+
+  ############################## React App ####################################
+  react-app:
+    tty: true
+    restart: 'no'
+    container_name: react-app
+    build:
+      context: react-app
+      target: prod
+    ports:
+      - ${APP_HTTP_PORT:-3000}:3000
+    depends_on:
+      - express-api
+    env_file: .env
+    networks:
+      - ${NAME_OF_PRODUCT}-network
+  ############################ End React App ##################################
+
+  ######################## Networks Definition ################################
+  networks:
+    ${NAME_OF_PRODUCT}:
+      name: ${NAME_OF_PRODUCT}-net
+      driver: bridge
+  ##################### End Networks Definition ###############################
+
+  ######################### Volumes Definition ################################
+  volumes:
+
+  ##################### End Volumes Definition ################################
