@@ -1,20 +1,4 @@
 services:
-  ############################# MYSQL Database ################################
-  database:
-    profiles: ['prod', 'dev']
-    restart: 'no'
-    container_name: ${NAME_OF_PRODUCT}-database
-    build:
-      context: database/mssql
-    env_file:
-      - database/mssql/.env
-    ports:
-      - ${DATABASE_PORT:-5433}:1433
-    volumes:
-      - database-data:/var/opt/mssql/data
-    networks:
-      - ${NAME_OF_PRODUCT}-network
-  ########################### End MYSQL Database ##############################
 
   ############################### Postgres ####################################
   postgres:
