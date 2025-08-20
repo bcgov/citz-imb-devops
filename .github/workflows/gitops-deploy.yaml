@@ -1,0 +1,98 @@
+name: Update Image Tag in GitOps Repo
+
+on:
+  push:
+    branches:
+    - main
+    paths:
+      - src/app/**
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag for production deployment'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+        - prod
+
+env:
+  GITOPS_REPO: git@github.com:bcgov-c/tenant-gitops-df1ee0.git
+  GITOPS_PATH: citz-sbc-queue
+  GIT_USER_EMAIL: github-actions[bot]@users.noreply.github.com
+  GIT_USER_NAME: github-actions[bot]
+
+jobs:
+  update-gitops-image-tag:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+    - name: Get PR Number
+      if: github.event_name == 'push'
+      id: get-pr-number
+      uses: actions/github-script@v5
+      with:
+        script: |
+          const { data: pulls } = await github.rest.pulls.list({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            state: 'all',
+          });
+          const pr = pulls.find(pr => pr.merge_commit_sha === process.env.GITHUB_SHA);
+          if (pr) {
+            return pr.number
+          } else {
+            return ''
+          }
+        result-encoding: string
+
+    - name: Set deployment variables
+      id: vars
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "file_path=${{ env.GITOPS_PATH }}/values.prod.yaml" >> $GITHUB_OUTPUT
+          echo "image_tag=${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+          echo "commit_message=Update production image tag to ${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "file_path=${{ env.GITOPS_PATH }}/values.yaml" >> $GITHUB_OUTPUT
+          echo "image_tag=${{ steps.get-pr-number.outputs.result }}" >> $GITHUB_OUTPUT
+          echo "commit_message=Update image tag to ${{ steps.get-pr-number.outputs.result }}" >> $GITHUB_OUTPUT
+        fi
+
+      # Install yaml parser
+    - name: Install yq
+      run: |
+        curl -Lo yq "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+        chmod +x yq
+        mv yq /home/runner/bin
+
+      # Add deploy key to runner
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.GITOPS_DEPLOY_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
+
+      # Make changes to image tag within GitOps repo
+    - name: Clone, Update, and Commit Changes
+      run: |
+        git clone ${{ env.GITOPS_REPO }}
+        cd tenant-gitops-df1ee0
+
+        FILE_PATH="${{ steps.vars.outputs.file_path }}"
+        NEW_TAG="${{ steps.vars.outputs.image_tag }}"
+
+        yq e ".deployments.app.image.tag = \"$NEW_TAG\"" -i "$FILE_PATH"
+
+        git config user.email "${{ env.GIT_USER_EMAIL }}"
+        git config user.name "${{ env.GIT_USER_NAME }}"
+
+        git add "$FILE_PATH"
+        git commit -m "${{ steps.vars.outputs.commit_message }}"
+        git push
